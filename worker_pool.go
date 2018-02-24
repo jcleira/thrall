@@ -18,7 +18,7 @@ type workerPool struct {
 	Queue chan Runnable
 
 	// Delayed is the Jobs Scheduled Queue, It containes all the scheduled jobs
-	// taht are waiting for their execution time.
+	// that are waiting for their execution time.
 	Delayed       map[time.Time][]Runnable
 	DelayedMutext sync.Mutex
 
@@ -29,6 +29,7 @@ type workerPool struct {
 	workersQueue chan Runnable
 	workersClose chan bool
 	workers      []*worker
+	errors       chan error
 	close        chan bool
 }
 
@@ -41,32 +42,34 @@ var wp *workerPool
 // queue and a quit channel to stop thrall's world.
 //
 // - numWorkers: the number of workers for the thrall's workPool.
-// - options: function option initializers, check the following With.. funcs.
+// - opts: function option initializers, check the following With.. funcs.
 //
-// Returns the jobs queue as chan Runnable, and a boolean close channel.
-func Init(numWorkers int, options ...func(*workerPool)) (chan Runnable, chan bool) {
+// Returns the jobs queue, an errors channel and close channel.
+func Init(workers int, opts ...func(*workerPool)) (chan Runnable, chan error, chan bool) {
 	wp = &workerPool{
 		Queue:        make(chan Runnable),
 		Delayed:      make(map[time.Time][]Runnable),
 		close:        make(chan bool),
+		errors:       make(chan error),
 		workersQueue: make(chan Runnable),
 		workersClose: make(chan bool),
 	}
 
-	for _, option := range options {
+	for _, option := range opts {
 		option(wp)
 	}
 
 	// TODO we are forcing one limiter, we might force the user to send it.
-	if len(options) == 0 {
+	if len(opts) == 0 {
 		wp.Limiter = &limiters.Max{Max: 1000}
 	}
 
-	for i := 0; i < numWorkers; i++ {
+	for i := 1; i <= workers; i++ {
 		worker := &worker{
 			Id:         i,
 			workerPool: wp,
 			Queue:      wp.workersQueue,
+			Errors:     wp.errors,
 			Close:      wp.workersClose,
 		}
 
@@ -75,7 +78,7 @@ func Init(numWorkers int, options ...func(*workerPool)) (chan Runnable, chan boo
 
 	wp.run()
 
-	return wp.Queue, wp.close
+	return wp.Queue, wp.errors, wp.close
 }
 
 // WithMaxLimiter is an optional func for thrall's init, It does configure a

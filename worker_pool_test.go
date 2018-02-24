@@ -1,6 +1,7 @@
 package thrall
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -38,17 +39,24 @@ func (r *repeatableJob) Repeat() bool {
 	return true
 }
 
+type errorJob struct{}
+
+func (ej *errorJob) Run() error {
+	return errors.New("error!")
+}
+
 func TestInit(t *testing.T) {
 	assert := assert.New(t)
 
 	t.Run("when Init succeed and initializing thrall", func(t *testing.T) {
-		queue, close := Init(1)
+		queue, errors, close := Init(1)
 
 		assert.NotNil(queue)
 		assert.NotNil(close)
 		assert.Len(wp.workers, 1)
 		assert.Equal(wp.Queue, queue)
 		assert.Equal(wp.close, close)
+		assert.Equal(wp.errors, errors)
 
 		close <- true
 	})
@@ -58,7 +66,7 @@ func TestSchedule(t *testing.T) {
 	assert := assert.New(t)
 
 	t.Run("when schedule succeed at scheduling a job", func(t *testing.T) {
-		queue, close := Init(1)
+		queue, _, close := Init(1)
 
 		queue <- &scheduleableJob{}
 		time.Sleep(10 * time.Millisecond)
