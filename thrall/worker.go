@@ -14,6 +14,8 @@ const jobTimeout = 5 * time.Second
 // instead we run the jobs by attaching them to a limited number of workers.
 type worker struct {
 	Id         int
+	Queue      chan Runnable
+	Close      chan bool
 	workerPool *workerPool
 }
 
@@ -24,9 +26,9 @@ func (w *worker) Start() {
 	go func() {
 		for {
 			select {
-			case job := <-w.workerPool.Jobs:
+			case job := <-w.Queue:
 				w.Enqueue(job)
-			case <-w.workerPool.Quit:
+			case <-w.Close:
 				return
 			}
 		}
@@ -42,7 +44,7 @@ func (w *worker) Start() {
 func (w *worker) Enqueue(job Runnable) {
 	if !w.workerPool.Limiter.Adquire() {
 		go func() {
-			w.workerPool.Jobs <- job
+			w.workerPool.Queue <- job
 		}()
 
 		return
@@ -75,6 +77,11 @@ func (w *worker) Run(job Runnable) {
 	case <-time.After(jobTimeout):
 		log.Printf("job timeout (%d sec) on worker %d", w.Id, jobTimeout)
 	case <-done:
-		return
+	}
+
+	if repeatable, ok := job.(Repeateable); ok {
+		if repeatable.Repeat() {
+			w.workerPool.Queue <- job
+		}
 	}
 }
