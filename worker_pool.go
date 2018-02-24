@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jcleira/thrall/thrall/limiters"
+	"github.com/jcleira/thrall/limiters"
 )
 
 // workerPool defines a group of workers and their common characteristics. The

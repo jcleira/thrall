@@ -1,8 +1,10 @@
 # Thrall
 
-![Thrall photo](https://i.imgur.com/vlMYoCv.jpg)
+[![circle-ci](https://circleci.com/gh/jcleira/thrall/tree/dev.png?style=shield)](https://circleci.com/gh/jcleira/thrall)
 
 Thrall is a package that provides job processing in Go.
+
+![Thrall photo](https://i.imgur.com/vlMYoCv.jpg)
 
 ## Usage
 
