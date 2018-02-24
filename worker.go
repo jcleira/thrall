@@ -1,7 +1,7 @@
 package thrall
 
 import (
-	"log"
+	"fmt"
 	"time"
 )
 
@@ -15,6 +15,7 @@ const jobTimeout = 5 * time.Second
 type worker struct {
 	Id         int
 	Queue      chan Runnable
+	Errors     chan error
 	Close      chan bool
 	workerPool *workerPool
 }
@@ -58,8 +59,6 @@ func (w *worker) Enqueue(job Runnable) {
 // time is hit, Run free the worker to accept more Jobs but as it launches a
 // new goroutine to execute the Runnable that goroutine may get leaked.
 //
-// TODO a library may not write directly to the log.
-//
 // - job: The Runnable to run on the worker.
 //
 // Returns nothing.
@@ -67,7 +66,7 @@ func (w *worker) Run(job Runnable) {
 	done := make(chan bool)
 	go func() {
 		if err := job.Run(); err != nil {
-			log.Printf("worker %d - job %d - %v", err)
+			w.Errors <- fmt.Errorf("job error on worker %d. Err: %v", w.Id, err)
 		}
 
 		done <- true
@@ -75,7 +74,7 @@ func (w *worker) Run(job Runnable) {
 
 	select {
 	case <-time.After(jobTimeout):
-		log.Printf("job timeout (%d sec) on worker %d", w.Id, jobTimeout)
+		w.Errors <- fmt.Errorf("job timeout (%d sec) on worker %d", w.Id, jobTimeout)
 	case <-done:
 	}
 
