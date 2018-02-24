@@ -1,37 +1,56 @@
 package thrall
 
 import (
+	"sync"
+	"time"
+
 	"github.com/jcleira/thrall/thrall/limiters"
 )
 
-// workerPool defines a group of Workers and their common characteristics. The
+// workerPool defines a group of workers and their common characteristics. The
 // Jobs Runnable channel would feed all the workers on the pool with jobs. The
-// Quit channel would make all the workers to finish whne called, and the
+// close channel would make all the workers to finish whne called, and the
 // Limiters would set a group for rules for all the workers on the pool to
 // follow.
 type workerPool struct {
-	Workers []*worker
-	Jobs    chan Runnable
-	Quit    chan bool
+	// Queue is the main Jobs Queue, It contains all the jobs that are waiting to
+	// be run.
+	Queue chan Runnable
+
+	// Delayed is the Jobs Scheduled Queue, It containes all the scheduled jobs
+	// taht are waiting for their execution time.
+	Delayed       map[time.Time][]Runnable
+	DelayedMutext sync.Mutex
+
+	// Limiter si thrall configured Jobs limiter, currently only one limiter can
+	// be configured per workerPool
 	Limiter limiters.Limiter
+
+	workersQueue chan Runnable
+	workersClose chan bool
+	workers      []*worker
+	close        chan bool
 }
+
+// wp is a package var that will keep all thrall's state.
+var wp *workerPool
 
 // Init is thrall's main initializer, it actually initizalices and run a
 // workerPool and it's defined workers. Init is also the thrall's public API,
 // it does return the two thrall's interactors, a chan Runnable that is the Job
 // queue and a quit channel to stop thrall's world.
 //
-// - numWorkers: the number of Workers for the thrall's workPool.
+// - numWorkers: the number of workers for the thrall's workPool.
 // - options: function option initializers, check the following With.. funcs.
 //
-// Returns the jobs channel as chan Runnable, and a boolean quit channel.
+// Returns the jobs queue as chan Runnable, and a boolean close channel.
 func Init(numWorkers int, options ...func(*workerPool)) (chan Runnable, chan bool) {
-	jobs := make(chan Runnable)
-	quit := make(chan bool)
-
-	wp := &workerPool{
-		Jobs: jobs,
-		Quit: quit,
+	wp = &workerPool{
+		Queue:        make(chan Runnable),
+		Delayed:      make(map[time.Time][]Runnable),
+		close:        make(chan bool),
+		workersQueue: make(chan Runnable),
+		workersClose: make(chan bool),
 	}
 
 	for _, option := range options {
@@ -47,14 +66,16 @@ func Init(numWorkers int, options ...func(*workerPool)) (chan Runnable, chan boo
 		worker := &worker{
 			Id:         i,
 			workerPool: wp,
+			Queue:      wp.workersQueue,
+			Close:      wp.workersClose,
 		}
 
-		wp.Workers = append(wp.Workers, worker)
+		wp.workers = append(wp.workers, worker)
 	}
 
 	wp.run()
 
-	return jobs, quit
+	return wp.Queue, wp.close
 }
 
 // WithMaxLimiter is an optional func for thrall's init, It does configure a
@@ -83,11 +104,45 @@ func WithPerSecondLimiter(perSecondJobs int) func(*workerPool) {
 	}
 }
 
-// run would launch the workerPool by starting all it's Workers.
+// run would launch the workerPool by starting all it's workers.
 //
 // Returns nothing.
 func (wp *workerPool) run() {
-	for i := 0; i < len(wp.Workers); i++ {
-		wp.Workers[i].Start()
+	go func() {
+		for {
+			select {
+			case job := <-wp.Queue:
+				if scheduleable, ok := job.(Scheduleable); ok {
+					go wp.schedule(job, scheduleable.Schedule())
+					continue
+				}
+
+				wp.workersQueue <- job
+			case <-wp.close:
+				close(wp.workersClose)
+				return
+			}
+		}
+	}()
+
+	for i := 0; i < len(wp.workers); i++ {
+		wp.workers[i].Start()
+	}
+}
+
+// schedule performs job scheduling for thrall's scheduleable job interfaces
+//
+// - job: The job to schedule.
+// - when: The job programmed execution time.
+//
+// Returns nothing.
+func (wp *workerPool) schedule(job Runnable, when time.Time) {
+	wp.DelayedMutext.Lock()
+	defer wp.DelayedMutext.Unlock()
+
+	if delayed, ok := wp.Delayed[when]; ok {
+		delayed = append(delayed, job)
+	} else {
+		wp.Delayed[when] = []Runnable{job}
 	}
 }
