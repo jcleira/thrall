@@ -6,7 +6,7 @@ import (
 )
 
 // jobTimeout is the defined max time for a job to be executed on the worker.
-const jobTimeout = 5 * time.Second
+const jobTimeout = 30 * time.Second
 
 // worker defines a job runner, it belongs to a workerPool and contains a
 // reference of it. This abstraction has been created to "control" the number
@@ -74,7 +74,7 @@ func (w *worker) Run(job Runnable) {
 
 	select {
 	case <-time.After(jobTimeout):
-		w.Errors <- fmt.Errorf("job timeout (%d sec) on worker %d", w.Id, jobTimeout)
+		w.Errors <- fmt.Errorf("job timeout (%f sec) on worker %d", jobTimeout.Seconds(), w.Id)
 	case <-done:
 	}
 

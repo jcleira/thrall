@@ -123,8 +123,16 @@ func (wp *workerPool) run() {
 				wp.workersQueue <- job
 			case <-wp.close:
 				close(wp.workersClose)
+				close(wp.close)
 				return
 			}
+		}
+	}()
+
+	go func() {
+		for {
+			wp.enqueueScheduled()
+			time.Sleep(time.Second)
 		}
 	}()
 
@@ -147,5 +155,24 @@ func (wp *workerPool) schedule(job Runnable, when time.Time) {
 		delayed = append(delayed, job)
 	} else {
 		wp.Delayed[when] = []Runnable{job}
+	}
+}
+
+// enqueueScheduled handle the enqueing for thrall's scheduled jobs, It ticks
+// on every second to check for enqueable scheduled jobs.
+//
+// Returns nothing
+func (wp *workerPool) enqueueScheduled() {
+	wp.DelayedMutext.Lock()
+	defer wp.DelayedMutext.Unlock()
+
+	for schedule, jobs := range wp.Delayed {
+		if time.Now().After(schedule) {
+			for _, job := range jobs {
+				wp.workersQueue <- job
+			}
+
+			delete(wp.Delayed, schedule)
+		}
 	}
 }
