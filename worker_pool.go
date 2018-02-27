@@ -1,10 +1,12 @@
 package thrall
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/jcleira/thrall/limiters"
+	"github.com/jcleira/thrall/metrics"
 )
 
 // workerPool defines a group of workers and their common characteristics. The
@@ -22,9 +24,14 @@ type workerPool struct {
 	Delayed       map[time.Time][]Runnable
 	DelayedMutext sync.Mutex
 
-	// Limiter si thrall configured Jobs limiter, currently only one limiter can
-	// be configured per workerPool
+	// Limiter is the workerPool configured Jobs limiter, currently only one
+	// limiter can be configured per workerPool.
 	Limiter limiters.Limiter
+
+	// Metrics is the workerPool metrics container. It has been created to
+	// collect and report jobs related metrics, that will be exposed ready to be
+	// scrapped on prometheus.
+	Metrics *metrics.Registry
 
 	workersQueue chan Runnable
 	workersClose chan bool
@@ -73,6 +80,13 @@ func Init(workers int, opts ...func(*workerPool)) (chan Runnable, chan error, ch
 			Close:      wp.workersClose,
 		}
 
+		if wp.Metrics != nil {
+			wp.Metrics.NewCounter(fmt.Sprintf("thrall_worker_%d_job_erroed", i), "worker erroed jobs counter")
+			wp.Metrics.NewCounter(fmt.Sprintf("thrall_worker_%d_job_timeout", i), "worker timed out jobs counter")
+			wp.Metrics.NewCounter(fmt.Sprintf("thrall_worker_%d_job_processed", i), "worker processed jobs counter")
+			wp.Metrics.NewCounter(fmt.Sprintf("thrall_worker_%d_job_rate_limited", i), "worker rate limited jobs counter")
+		}
+
 		wp.workers = append(wp.workers, worker)
 	}
 
@@ -107,6 +121,26 @@ func WithPerSecondLimiter(perSecondJobs int) func(*workerPool) {
 	}
 }
 
+// WithMetrics is an optional func for thrall's init, It does configure a
+// internal prometheus metrics system that would report workerpool and worker
+// stas on the /metrics endpoint.
+//
+// Returns a optional configuration function.
+func WithMetrics() func(*workerPool) {
+	return func(wp *workerPool) {
+		wp.Metrics = metrics.NewRegistry()
+
+		wp.Metrics.NewCounter("thrall_workerpool_job_received", "worker pool received jobs counter")
+		wp.Metrics.NewCounter("thrall_workerpool_job_enqueued", "worker pool enqueued jobs counter")
+		wp.Metrics.NewGauge("thrall_workerpool_job_scheduled", "worker pool scheduled jobs gauge")
+
+		wp.Metrics.NewCounter("thrall_workerpool_job_erroed", "worker pool erroed jobs counter")
+		wp.Metrics.NewCounter("thrall_workerpool_job_timeout", "worker pool timed out jobs counter")
+		wp.Metrics.NewCounter("thrall_workerpool_job_processed", "worker pool processed jobs counter")
+		wp.Metrics.NewCounter("thrall_workerpool_job_rate_limited", "worker pool rate limited jobs counter")
+	}
+}
+
 // run would launch the workerPool by starting all it's workers.
 //
 // Returns nothing.
@@ -115,9 +149,20 @@ func (wp *workerPool) run() {
 		for {
 			select {
 			case job := <-wp.Queue:
+				if wp.Metrics != nil {
+					wp.Metrics.IncCounter("thrall_workerpool_job_received")
+				}
 				if scheduleable, ok := job.(Scheduleable); ok {
+
+					if wp.Metrics != nil {
+						wp.Metrics.IncGauge("thrall_workerpool_job_scheduled")
+					}
 					go wp.schedule(job, scheduleable.Schedule())
 					continue
+				}
+
+				if wp.Metrics != nil {
+					wp.Metrics.IncCounter("thrall_workerpool_job_enqueued")
 				}
 
 				wp.workersQueue <- job
@@ -169,6 +214,9 @@ func (wp *workerPool) enqueueScheduled() {
 	for schedule, jobs := range wp.Delayed {
 		if time.Now().After(schedule) {
 			for _, job := range jobs {
+				if wp.Metrics != nil {
+					wp.Metrics.DecGauge("thrall_workerpool_job_scheduled")
+				}
 				wp.workersQueue <- job
 			}
 
