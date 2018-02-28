@@ -7,36 +7,33 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// NewCounter creates a new Counter metric.
+// NewCounter creates N number of new Counter metrics.
 //
-// - name: Counter's name.
-// - help: Counter's help, required by prometheus.
+// - names: Counter's names.
 //
-// Returns nothing.
-func (r *Registry) NewCounter(name, help string) error {
-	if name == "" {
-		return errors.New("counter's name should not be empty")
-	}
-
-	if help == "" {
-		return fmt.Errorf("counter's '%s' help should not be empty", name)
-	}
-
-	if _, exists := r.Counters[name]; exists {
-		return fmt.Errorf("counter '%s' already registered", name)
-	}
-
+// Returns an error if any counter creation fails.
+func (r *Registry) NewCounters(names ...string) error {
 	r.Lock()
 	defer r.Unlock()
 
-	r.Counters[name] = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Name: name,
-			Help: help,
-		},
-	)
+	for _, name := range names {
+		if name == "" {
+			return errors.New("counter's name should not be empty")
+		}
 
-	prometheus.MustRegister(r.Counters[name])
+		if _, exists := r.Counters[name]; exists {
+			return fmt.Errorf("counter '%s' already registered", name)
+		}
+
+		r.Counters[name] = prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: name,
+				Help: name,
+			},
+		)
+
+		prometheus.MustRegister(r.Counters[name])
+	}
 
 	return nil
 }
@@ -59,22 +56,6 @@ func (r *Registry) CloseCounter(name string) error {
 	defer r.Unlock()
 
 	delete(r.Counters, name)
-
-	return nil
-}
-
-// IncCounter increments by one a counter's value.
-//
-// - name: counter's name to increment.
-//
-// Returns an error if the counter is not found.
-func (r *Registry) IncCounter(name string) error {
-	counter, exists := r.Counters[name]
-	if !exists {
-		return fmt.Errorf("counter %s not found", name)
-	}
-
-	counter.Inc()
 
 	return nil
 }

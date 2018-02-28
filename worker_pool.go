@@ -1,7 +1,11 @@
 package thrall
 
+//
+// - metrics: THe metrics to increment.
+//
+// Returns nothing.
+
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -80,13 +84,6 @@ func Init(workers int, opts ...func(*workerPool)) (chan Runnable, chan error, ch
 			Close:      wp.workersClose,
 		}
 
-		if wp.Metrics != nil {
-			wp.Metrics.NewCounter(fmt.Sprintf("thrall_worker_%d_job_erroed", i), "worker erroed jobs counter")
-			wp.Metrics.NewCounter(fmt.Sprintf("thrall_worker_%d_job_timeout", i), "worker timed out jobs counter")
-			wp.Metrics.NewCounter(fmt.Sprintf("thrall_worker_%d_job_processed", i), "worker processed jobs counter")
-			wp.Metrics.NewCounter(fmt.Sprintf("thrall_worker_%d_job_rate_limited", i), "worker rate limited jobs counter")
-		}
-
 		wp.workers = append(wp.workers, worker)
 	}
 
@@ -129,15 +126,18 @@ func WithPerSecondLimiter(perSecondJobs int) func(*workerPool) {
 func WithMetrics() func(*workerPool) {
 	return func(wp *workerPool) {
 		wp.Metrics = metrics.NewRegistry()
+		wp.Metrics.NewGauges(
+			"thrall_workerpool_job_enqueued",
+			"thrall_workerpool_job_processed",
+			"thrall_workerpool_job_scheduled",
+		)
 
-		wp.Metrics.NewCounter("thrall_workerpool_job_received", "worker pool received jobs counter")
-		wp.Metrics.NewCounter("thrall_workerpool_job_enqueued", "worker pool enqueued jobs counter")
-		wp.Metrics.NewGauge("thrall_workerpool_job_scheduled", "worker pool scheduled jobs gauge")
-
-		wp.Metrics.NewCounter("thrall_workerpool_job_erroed", "worker pool erroed jobs counter")
-		wp.Metrics.NewCounter("thrall_workerpool_job_timeout", "worker pool timed out jobs counter")
-		wp.Metrics.NewCounter("thrall_workerpool_job_processed", "worker pool processed jobs counter")
-		wp.Metrics.NewCounter("thrall_workerpool_job_rate_limited", "worker pool rate limited jobs counter")
+		wp.Metrics.NewCounters(
+			"thrall_workerpool_job_received",
+			"thrall_workerpool_job_erroed",
+			"thrall_workerpool_job_timeout",
+			"thrall_workerpool_job_rate_limited",
+		)
 	}
 }
 
@@ -149,22 +149,15 @@ func (wp *workerPool) run() {
 		for {
 			select {
 			case job := <-wp.Queue:
-				if wp.Metrics != nil {
-					wp.Metrics.IncCounter("thrall_workerpool_job_received")
-				}
-				if scheduleable, ok := job.(Scheduleable); ok {
+				wp.IncMetric("thrall_workerpool_job_received")
 
-					if wp.Metrics != nil {
-						wp.Metrics.IncGauge("thrall_workerpool_job_scheduled")
-					}
+				if scheduleable, ok := job.(Scheduleable); ok {
+					wp.IncMetric("thrall_workerpool_job_scheduled")
 					go wp.schedule(job, scheduleable.Schedule())
 					continue
 				}
 
-				if wp.Metrics != nil {
-					wp.Metrics.IncCounter("thrall_workerpool_job_enqueued")
-				}
-
+				wp.IncMetric("thrall_workerpool_job_enqueued")
 				wp.workersQueue <- job
 			case <-wp.close:
 				close(wp.workersClose)
@@ -215,12 +208,38 @@ func (wp *workerPool) enqueueScheduled() {
 		if time.Now().After(schedule) {
 			for _, job := range jobs {
 				if wp.Metrics != nil {
-					wp.Metrics.DecGauge("thrall_workerpool_job_scheduled")
+					wp.DecMetric("thrall_workerpool_job_scheduled")
 				}
 				wp.workersQueue <- job
 			}
 
 			delete(wp.Delayed, schedule)
 		}
+	}
+}
+
+// IncMetric increments any given metric, actually it's a wrapper func to avoid
+// checking if the metrics registry is nil everytime that we want to report a
+// value.
+//
+// - metrics: THe metrics to increment.
+//
+// Returns nothing.
+func (wp *workerPool) IncMetric(metrics ...string) {
+	if wp.Metrics != nil {
+		wp.Metrics.Inc(metrics...)
+	}
+}
+
+// DecMetric decrements any given metric, actually it's a wrapper func to avoid
+// checking if the metrics registry is nil everytime that we want to report a
+// value.
+//
+// - metrics: THe metrics to increment.
+//
+// Returns nothing.
+func (wp *workerPool) DecMetric(metrics ...string) {
+	if wp.Metrics != nil {
+		wp.Metrics.Dec(metrics...)
 	}
 }

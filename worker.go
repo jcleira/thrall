@@ -44,11 +44,7 @@ func (w *worker) Start() {
 // Returns nothing.
 func (w *worker) Enqueue(job Runnable) {
 	if !w.workerPool.Limiter.Adquire() {
-		if w.workerPool.Metrics != nil {
-			w.workerPool.Metrics.IncCounter(fmt.Sprintf("thrall_worker_%d_job_rate_limited", w.Id))
-			w.workerPool.Metrics.IncCounter("thrall_workerpool_job_rate_limited")
-		}
-
+		w.workerPool.IncMetric("thrall_workerpool_job_rate_limited")
 		go func() {
 			w.workerPool.Queue <- job
 		}()
@@ -71,29 +67,18 @@ func (w *worker) Run(job Runnable) {
 	done := make(chan bool)
 	go func() {
 		if err := job.Run(); err != nil {
-			if w.workerPool.Metrics != nil {
-				w.workerPool.Metrics.IncCounter(fmt.Sprintf("thrall_worker_%d_job_erroed", w.Id))
-				w.workerPool.Metrics.IncCounter("thrall_workerpool_job_erroed")
-			}
-
+			w.workerPool.IncMetric("thrall_workerpool_job_erroed")
 			w.Errors <- fmt.Errorf("job error on worker %d. Err: %v", w.Id, err)
 		}
 
-		if w.workerPool.Metrics != nil {
-			w.workerPool.Metrics.IncCounter(fmt.Sprintf("thrall_worker_%d_job_processed", w.Id))
-			w.workerPool.Metrics.IncCounter("thrall_workerpool_job_processed")
-		}
-
+		w.workerPool.IncMetric("thrall_workerpool_job_processed")
+		w.workerPool.DecMetric("thrall_workerpool_job_enqueued")
 		done <- true
 	}()
 
 	select {
 	case <-time.After(jobTimeout):
-		if w.workerPool.Metrics != nil {
-			w.workerPool.Metrics.IncCounter(fmt.Sprintf("thrall_worker_%d_job_timeout", w.Id))
-			w.workerPool.Metrics.IncCounter("thrall_workerpool_job_timeout")
-		}
-
+		w.workerPool.IncMetric("thrall_workerpool_job_timeout")
 		w.Errors <- fmt.Errorf("job timeout (%f sec) on worker %d", jobTimeout.Seconds(), w.Id)
 	case <-done:
 	}

@@ -7,15 +7,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNewGauge(t *testing.T) {
+func TestNewGauges(t *testing.T) {
 	assert := assert.New(t)
 
-	t.Run("when NewGauge succeed creating a gauge", func(t *testing.T) {
+	t.Run("when NewGauges succeed creating a gauge", func(t *testing.T) {
 		r := &Registry{
 			Gauges: make(map[string]prometheus.Gauge),
 		}
 
-		err := r.NewGauge("foo", "bar")
+		err := r.NewGauges("foo")
 
 		assert.Nil(err)
 		assert.Equal(len(r.Gauges), 1)
@@ -26,26 +26,15 @@ func TestNewGauge(t *testing.T) {
 		assert.Equal(len(r.Gauges), 0)
 	})
 
-	t.Run("when NewGauge fails creating a gauge", func(t *testing.T) {
+	t.Run("when NewGauges fails creating a gauge", func(t *testing.T) {
 		t.Run("due empty name", func(t *testing.T) {
 			r := &Registry{
 				Gauges: make(map[string]prometheus.Gauge),
 			}
 
-			err := r.NewGauge("", "bar")
+			err := r.NewGauges("")
 
 			assert.Equal("gauge's name should not be empty", err.Error())
-			assert.Empty(r.Gauges)
-		})
-
-		t.Run("due empty help", func(t *testing.T) {
-			r := &Registry{
-				Gauges: make(map[string]prometheus.Gauge),
-			}
-
-			err := r.NewGauge("foo", "")
-
-			assert.Equal("gauge's 'foo' help should not be empty", err.Error())
 			assert.Empty(r.Gauges)
 		})
 
@@ -54,11 +43,11 @@ func TestNewGauge(t *testing.T) {
 				Gauges: make(map[string]prometheus.Gauge),
 			}
 
-			err := r.NewGauge("foo", "bar")
+			err := r.NewGauges("foo")
 
 			assert.Nil(err)
 
-			err = r.NewGauge("foo", "bar")
+			err = r.NewGauges("foo")
 
 			assert.Equal("gauge 'foo' already registered", err.Error())
 			assert.Equal(len(r.Gauges), 1)
@@ -79,7 +68,7 @@ func TestCloseGauge(t *testing.T) {
 			Gauges: make(map[string]prometheus.Gauge),
 		}
 
-		err := r.NewGauge("foo", "bar")
+		err := r.NewGauges("foo")
 
 		assert.Nil(err)
 
