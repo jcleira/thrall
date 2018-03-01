@@ -128,11 +128,11 @@ func WithMetrics() func(*workerPool) {
 		wp.Metrics = metrics.NewRegistry()
 		wp.Metrics.NewGauges(
 			"thrall_workerpool_job_enqueued",
-			"thrall_workerpool_job_processed",
 			"thrall_workerpool_job_scheduled",
 		)
 
 		wp.Metrics.NewCounters(
+			"thrall_workerpool_job_processed",
 			"thrall_workerpool_job_received",
 			"thrall_workerpool_job_erroed",
 			"thrall_workerpool_job_timeout",
