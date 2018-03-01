@@ -54,6 +54,13 @@ func (w *worker) Enqueue(job Runnable) {
 
 	w.Run(job)
 	w.workerPool.Limiter.Release()
+
+	if repeatable, ok := job.(Repeateable); ok {
+		if repeatable.Repeat() {
+			w.workerPool.Queue <- job
+			return
+		}
+	}
 }
 
 // Run executes the Runnable and gives it a constant time to finish, if that
@@ -72,7 +79,6 @@ func (w *worker) Run(job Runnable) {
 		}
 
 		w.workerPool.IncMetric("thrall_workerpool_job_processed")
-		w.workerPool.DecMetric("thrall_workerpool_job_enqueued")
 		done <- true
 	}()
 
@@ -83,9 +89,5 @@ func (w *worker) Run(job Runnable) {
 	case <-done:
 	}
 
-	if repeatable, ok := job.(Repeateable); ok {
-		if repeatable.Repeat() {
-			w.workerPool.Queue <- job
-		}
-	}
+	w.workerPool.DecMetric("thrall_workerpool_job_enqueued")
 }
