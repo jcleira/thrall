@@ -29,3 +29,33 @@ func NewRegistry() *Registry {
 		Counters: make(map[string]prometheus.Counter),
 	}
 }
+
+// Inc increases the value of N number of metrics given by it's names.
+//
+// - names: The metric names to increase.
+//
+// Returns nothing.
+func (r *Registry) Inc(names ...string) {
+	for _, name := range names {
+		if gauge, exists := r.Gauges[name]; exists {
+			gauge.Inc()
+		}
+
+		if counter, exists := r.Counters[name]; exists {
+			counter.Inc()
+		}
+	}
+}
+
+// Dec decreases the value of N number of metrics given by it's names.
+//
+// - names: The metric names to decrease.
+//
+// Returns nothing.
+func (r *Registry) Dec(names ...string) {
+	for _, name := range names {
+		if gauge, exists := r.Gauges[name]; exists {
+			gauge.Dec()
+		}
+	}
+}
