@@ -145,6 +145,8 @@ func WithMetrics() func(*workerPool) {
 //
 // Returns nothing.
 func (wp *workerPool) run() {
+	wp.Limiter.Init()
+
 	go func() {
 		for {
 			select {
@@ -157,7 +159,6 @@ func (wp *workerPool) run() {
 					continue
 				}
 
-				wp.IncMetric("thrall_workerpool_job_enqueued")
 				wp.workersQueue <- job
 			case <-wp.close:
 				close(wp.workersClose)

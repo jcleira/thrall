@@ -28,7 +28,9 @@ func (w *worker) Start() {
 		for {
 			select {
 			case job := <-w.Queue:
+				w.workerPool.IncMetric("thrall_workerpool_job_enqueued")
 				w.Enqueue(job)
+				w.workerPool.DecMetric("thrall_workerpool_job_enqueued")
 			case <-w.Close:
 				return
 			}
@@ -58,7 +60,6 @@ func (w *worker) Enqueue(job Runnable) {
 	if repeatable, ok := job.(Repeateable); ok {
 		if repeatable.Repeat() {
 			w.workerPool.Queue <- job
-			return
 		}
 	}
 }
@@ -89,5 +90,4 @@ func (w *worker) Run(job Runnable) {
 	case <-done:
 	}
 
-	w.workerPool.DecMetric("thrall_workerpool_job_enqueued")
 }
